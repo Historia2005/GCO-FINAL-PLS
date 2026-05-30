@@ -1035,8 +1035,7 @@ function isLimitedSlotCoverage(slots, dayWindow) {
 }
 
 function buildYearCalendar(year, appointments, unavailable, options = {}) {
-  const { disableWeekendBooking, scheduleByDate, activeDate = "", selectedDates = [], dayWindow = null } = options;
-  const selectedSet = new Set(Array.isArray(selectedDates) ? selectedDates : []);
+  const { disableWeekendBooking, scheduleByDate, activeDate = "", dayWindow = null } = options;
   const counselorMode = Boolean(scheduleByDate);
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const week = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -1090,7 +1089,6 @@ function buildYearCalendar(year, appointments, unavailable, options = {}) {
           if (partialBlocked) classes.push("day-partial-blocked");
           if (iso === todayIso) classes.push("today");
           if (activeDate && iso === activeDate) classes.push("day-active");
-          if (selectedSet.has(iso)) classes.push("day-selected");
         } else {
           classes = ["month-day", "calendar-day-btn"];
           if (disableWeekendBooking && isWeekend) classes.push("weekend-no-book");
@@ -1321,7 +1319,7 @@ function renderSelectedDateChips() {
   if (!el) return;
   const dates = state.counselorAvailDates || [];
   if (!dates.length) {
-    el.innerHTML = '<span class="muted tiny">Click calendar days below to select one or more dates (gold outline).</span>';
+    el.innerHTML = '<span class="muted tiny">No batch dates yet — click a day, then use “Add active date to batch”.</span>';
     return;
   }
   el.innerHTML = dates
@@ -1340,12 +1338,11 @@ function renderSelectedDateChips() {
 }
 
 function syncCounselorCalendarSelection(ctx) {
-  const selected = new Set(state.counselorAvailDates || []);
   const active = getActiveAvailDate();
   document.querySelectorAll(".counselor-availability-calendar .calendar-day-btn").forEach((btn) => {
     const iso = btn.dataset.date;
-    btn.classList.toggle("day-selected", selected.has(iso));
-    btn.classList.toggle("day-active", iso === active);
+    btn.classList.remove("day-selected");
+    btn.classList.toggle("day-active", Boolean(active && iso === active));
   });
   if (ctx) updateCalendarDayColors(ctx);
 }
@@ -1355,12 +1352,55 @@ function bindCounselorCalendarDayClicks(ctx) {
     btn.addEventListener("click", () => {
       const date = btn.dataset.date;
       if (!date) return;
-      toggleCounselorAvailDate(date);
       selectCounselorCalendarDay(date, ctx);
-      renderSelectedDateChips();
       syncCounselorCalendarSelection(ctx);
     });
   });
+}
+
+let counselorDayModalEl = null;
+
+function ensureCounselorDayModal() {
+  if (counselorDayModalEl) return counselorDayModalEl;
+  const modal = document.createElement("div");
+  modal.id = "counselorDayModal";
+  modal.className = "modal hidden";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "counselorDayModalTitle");
+  modal.innerHTML = `
+    <div class="modal-content counselor-day-modal">
+      <div class="counselor-day-modal__head">
+        <h3 id="counselorDayModalTitle">Day details</h3>
+        <button type="button" class="counselor-day-modal__close" id="counselorDayModalClose" aria-label="Close day details">×</button>
+      </div>
+      <div id="counselorDayModalBody" class="counselor-day-modal__body"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = () => closeCounselorDayModal();
+  document.getElementById("counselorDayModalClose").onclick = close;
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && counselorDayModalEl && !counselorDayModalEl.classList.contains("hidden")) close();
+  });
+  counselorDayModalEl = modal;
+  return modal;
+}
+
+function openCounselorDayModal() {
+  const modal = ensureCounselorDayModal();
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  document.body.classList.add("modal-open");
+}
+
+function closeCounselorDayModal() {
+  if (!counselorDayModalEl) return;
+  counselorDayModalEl.classList.add("hidden");
+  counselorDayModalEl.style.display = "none";
+  document.body.classList.remove("modal-open");
 }
 
 function normalizeCounselorDateKey(val) {
@@ -1418,11 +1458,14 @@ function renderCounselorSlotListItem(slot, blocks) {
   return `<li class="saved-slot-list__blocked">${escapeHtml(range)} <span class="slot-blocked-tag">Unavailable</span></li>`;
 }
 
-function renderCounselorDayPanel(date, ctx) {
-  const panel = document.getElementById("counselorDayView");
+function renderCounselorDayPanel(date, ctx, openModal = true) {
+  ensureCounselorDayModal();
+  const panel = document.getElementById("counselorDayModalBody");
+  const modalTitle = document.getElementById("counselorDayModalTitle");
   const savedTitle = document.getElementById("savedSlotsTitle");
   const savedContent = document.getElementById("savedSlotsContent");
   if (!panel) return;
+  if (modalTitle) modalTitle.textContent = `${date} · ${weekdayLabelForDate(date)}`;
 
   const { scheduleByDate, unavailableByDate, appointmentByDate } = ctx;
   const blocks = unavailableByDate.get(date) || [];
@@ -1480,6 +1523,7 @@ function renderCounselorDayPanel(date, ctx) {
         : ""
     }
   `;
+  if (openModal) openCounselorDayModal();
 }
 
 function setActiveCalendarDay(date) {
@@ -1506,13 +1550,13 @@ function updateCalendarDayColors(ctx) {
   });
 }
 
-function selectCounselorCalendarDay(date, ctx) {
+function selectCounselorCalendarDay(date, ctx, { openModal = true } = {}) {
   if (!date) return;
   state.counselorAvailDate = date;
   const dateInput = document.getElementById("availDate");
   if (dateInput) dateInput.value = date;
   setActiveCalendarDay(date);
-  renderCounselorDayPanel(date, ctx);
+  renderCounselorDayPanel(date, ctx, openModal);
   const entry = ctx.scheduleByDate.get(date);
   if (entry?.sessionDurationMinutes) {
     const sel = document.getElementById("availSessionDuration");
@@ -1588,8 +1632,6 @@ async function renderCounselorCalendar(root) {
   const dayWindow = { start: defaultDayStart, end: defaultDayEnd, breaks: lunchBreaks };
   const calendarCtx = buildCounselorCalendarCtx(dateSchedule, calendar);
   state.counselorCalendarCtx = { ...calendarCtx, dayWindow };
-  const selectedDates = state.counselorAvailDates;
-
   const selectedEntry = scheduleByDate.get(primaryDate);
   const selectedSession = selectedEntry?.sessionDurationMinutes || bookingProfile?.sessionMinutes || 60;
   state.counselorUnavail = availability;
@@ -1605,8 +1647,11 @@ async function renderCounselorCalendar(root) {
     </div>
     <div class="card stack-md section-block">
       <h3>Set Availability</h3>
-      <p class="muted tiny">Select one or more dates on the calendar below, configure hours, then generate slots.</p>
+      <p class="muted tiny">Click a calendar day to view details. Add dates to the batch list to generate slots for multiple days.</p>
       <div id="selectedDatesChips" class="selected-dates-chips"></div>
+      <div class="avail-batch-actions">
+        <button type="button" class="btn ghost" id="addAvailDateToBatchBtn">Add active date to batch</button>
+      </div>
       <div class="avail-layout">
         <form id="dateAvailabilityForm" class="avail-form stack-md">
           <label class="field">
@@ -1709,10 +1754,10 @@ async function renderCounselorCalendar(root) {
           <span><i class="dot blocked"></i>Unavailable (all day)</span>
           <span><i class="dot partial-blocked"></i>Part-day only (pink)</span>
           <span><i class="dot today"></i>Today</span>
-          <span><i class="dot selected"></i>Selected</span>
+          <span><i class="dot selected"></i>Clicked day</span>
         </div>
       </div>
-      <p class="muted tiny">Click a day to select/deselect it (gold) and view its time slots. Double-click is not required.</p>
+      <p class="muted tiny">Click a day to view its details (gold outline). Only one day is highlighted at a time.</p>
       <div class="year-calendar-grid counselor-availability-calendar">${buildYearCalendar(
         year,
         calendar.appointments || [],
@@ -1720,11 +1765,9 @@ async function renderCounselorCalendar(root) {
         {
           scheduleByDate,
           activeDate: primaryDate,
-          selectedDates,
           dayWindow: { start: defaultDayStart, end: defaultDayEnd, breaks: lunchBreaks }
         }
       )}</div>
-      <div id="counselorDayView" class="counselor-day-view"></div>
     </div>
   `;
 
@@ -1780,7 +1823,7 @@ async function renderCounselorCalendar(root) {
 
   window.__counselorUpdatePreview = updatePreview;
   renderSelectedDateChips();
-  selectCounselorCalendarDay(primaryDate, calendarCtx);
+  selectCounselorCalendarDay(primaryDate, calendarCtx, { openModal: false });
   syncCounselorCalendarSelection(calendarCtx);
   updatePreview();
 
@@ -1803,10 +1846,36 @@ async function renderCounselorCalendar(root) {
   document.getElementById("availDate")?.addEventListener("change", (e) => {
     const d = e.target.value;
     if (!d) return;
-    if (!Array.isArray(state.counselorAvailDates) || !state.counselorAvailDates.includes(d)) toggleCounselorAvailDate(d);
     selectCounselorCalendarDay(d, state.counselorCalendarCtx || calendarCtx);
-    renderSelectedDateChips();
     syncCounselorCalendarSelection(state.counselorCalendarCtx || calendarCtx);
+  });
+
+  document.getElementById("addAvailDateToBatchBtn")?.addEventListener("click", () => {
+    const d = getActiveAvailDate();
+    const msg = document.getElementById("availGenerateMsg");
+    if (!d) {
+      if (msg) {
+        msg.textContent = "Pick a date on the calendar first.";
+        msg.className = "feedback feedback-error";
+      }
+      return;
+    }
+    if (!Array.isArray(state.counselorAvailDates)) state.counselorAvailDates = [];
+    if (state.counselorAvailDates.includes(d)) {
+      if (msg) {
+        msg.textContent = `${d} is already in the batch list.`;
+        msg.className = "feedback feedback-error";
+      }
+      return;
+    }
+    state.counselorAvailDates.push(d);
+    state.counselorAvailDates.sort();
+    renderSelectedDateChips();
+    updatePreview();
+    if (msg) {
+      msg.textContent = `Added ${d} to batch (${state.counselorAvailDates.length} date(s)).`;
+      msg.className = "feedback status-success";
+    }
   });
 
   bindCounselorCalendarDayClicks(state.counselorCalendarCtx || calendarCtx);
@@ -1829,14 +1898,17 @@ async function renderCounselorCalendar(root) {
       grid.innerHTML = buildYearCalendar(y, cal.appointments || [], cal.unavailable || [], {
         scheduleByDate: state.counselorCalendarCtx.scheduleByDate,
         activeDate: getActiveAvailDate(),
-        selectedDates: state.counselorAvailDates || [],
         dayWindow: dw
       });
       bindCounselorCalendarDayClicks(state.counselorCalendarCtx);
     }
     syncCounselorCalendarSelection(state.counselorCalendarCtx);
     renderSelectedDateChips();
-    selectCounselorCalendarDay(getActiveAvailDate(), state.counselorCalendarCtx);
+    const modalWasOpen =
+      counselorDayModalEl && !counselorDayModalEl.classList.contains("hidden");
+    selectCounselorCalendarDay(getActiveAvailDate(), state.counselorCalendarCtx, {
+      openModal: modalWasOpen
+    });
   }
 
   document.getElementById("clearAvailDateBtn")?.addEventListener("click", async (e) => {

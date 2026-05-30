@@ -809,16 +809,15 @@ ul.saved-slot-list.data-scroll-panel {
 }
 
 .counselor-availability-calendar .calendar-day-btn.day-active {
-  box-shadow: 0 0 0 2px var(--blue-700), 0 0 0 4px rgba(58, 82, 163, 0.25);
-  z-index: 1;
-  position: relative;
-}
-
-.counselor-availability-calendar .calendar-day-btn.day-selected {
   box-shadow: 0 0 0 2px var(--gold-500), 0 0 0 4px rgba(185, 148, 48, 0.35);
   transform: scale(1.03);
   z-index: 2;
   position: relative;
+}
+
+.counselor-availability-calendar .calendar-day-btn.day-selected {
+  box-shadow: none;
+  transform: none;
 }
 
 .calendar-legend--counselor .dot.selected {
@@ -828,13 +827,57 @@ ul.saved-slot-list.data-scroll-panel {
   height: 8px;
 }
 
-.counselor-day-view {
-  margin-top: 1rem;
-  padding: 1rem 1.1rem;
-  background: var(--slate-50);
+.counselor-day-modal {
+  width: min(520px, 100%);
+  max-height: min(85vh, 640px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.counselor-day-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem 0.75rem;
+  border-bottom: 1px solid var(--slate-200);
+}
+
+.counselor-day-modal__head h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--blue-950);
+}
+
+.counselor-day-modal__close {
+  width: 2.25rem;
+  height: 2.25rem;
   border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  min-height: 4rem;
+  border-radius: 10px;
+  background: var(--slate-50);
+  color: var(--blue-950);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.counselor-day-modal__close:hover {
+  background: var(--slate-100);
+  border-color: rgba(16, 47, 116, 0.25);
+}
+
+.counselor-day-modal__body {
+  padding: 1rem 1.15rem 1.15rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.avail-batch-actions {
+  margin-top: 0.5rem;
 }
 
 .day-view-header {
@@ -970,14 +1013,25 @@ body.dark-mode .day-view-unavail {
 }
 
 body.dark-mode .counselor-availability-calendar .calendar-day-btn.day-active {
-  box-shadow: 0 0 0 2px var(--gold-400), 0 0 0 4px rgba(185, 148, 48, 0.3);
-}
-
-body.dark-mode .counselor-availability-calendar .calendar-day-btn.day-selected {
   box-shadow: 0 0 0 2px var(--gold-400), 0 0 0 4px rgba(185, 148, 48, 0.4);
 }
 
-body.dark-mode .counselor-day-view {
+body.dark-mode .counselor-day-modal__head {
+  border-bottom-color: rgba(148, 163, 184, 0.2);
+}
+
+body.dark-mode .counselor-day-modal__head h3 {
+  color: #f1f5f9;
+}
+
+body.dark-mode .counselor-day-modal__close {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #e2e8f0;
+}
+
+body.dark-mode .counselor-day-view,
+body.dark-mode .counselor-day-modal__body {
   background: rgba(24, 36, 58, 0.5);
   border-color: rgba(148, 163, 184, 0.15);
 }
