@@ -48,11 +48,93 @@ function setCreateAccountFeedback(message, type = "") {
   if (type === "error") el.classList.add("create-account-feedback--error");
 }
 
+let gcoConfirmModalEl = null;
+let gcoConfirmResolve = null;
+
+function ensureConfirmDialog() {
+  if (gcoConfirmModalEl) return gcoConfirmModalEl;
+  const modal = document.createElement("div");
+  modal.id = "gcoConfirmModal";
+  modal.className = "modal hidden";
+  modal.setAttribute("role", "alertdialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "gcoConfirmTitle");
+  modal.setAttribute("aria-describedby", "gcoConfirmMessage");
+  modal.innerHTML = `
+    <div class="modal-content confirm-dialog" role="document">
+      <div class="confirm-dialog__header">
+        <div class="confirm-dialog__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" focusable="false">
+            <path fill="currentColor" d="M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5zM11 10v5h2v-5h-2zm0 7v2h2v-2h-2z"/>
+          </svg>
+        </div>
+        <h3 id="gcoConfirmTitle"></h3>
+        <p id="gcoConfirmMessage" class="confirm-dialog__message"></p>
+      </div>
+      <p id="gcoConfirmDetail" class="confirm-dialog__detail hidden"></p>
+      <div class="confirm-dialog__actions">
+        <button type="button" class="confirm-dialog__btn confirm-dialog__btn--cancel" id="gcoConfirmCancel">Cancel</button>
+        <button type="button" class="confirm-dialog__btn confirm-dialog__btn--danger" id="gcoConfirmOk">Confirm</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = (result) => {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+    document.body.classList.remove("modal-open");
+    const resolve = gcoConfirmResolve;
+    gcoConfirmResolve = null;
+    resolve?.(result);
+  };
+  document.getElementById("gcoConfirmCancel").onclick = () => close(false);
+  document.getElementById("gcoConfirmOk").onclick = () => close(true);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!gcoConfirmResolve || modal.classList.contains("hidden")) return;
+    if (e.key === "Escape") close(false);
+  });
+  gcoConfirmModalEl = modal;
+  return modal;
+}
+
+/** Styled warning dialog; returns true if the user confirms. */
+function showConfirmDialog({
+  title = "Are you sure?",
+  message = "This action cannot be undone.",
+  detail = "",
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel"
+} = {}) {
+  const modal = ensureConfirmDialog();
+  document.getElementById("gcoConfirmTitle").textContent = title;
+  document.getElementById("gcoConfirmMessage").textContent = message;
+  const detailEl = document.getElementById("gcoConfirmDetail");
+  if (detail) {
+    detailEl.textContent = detail;
+    detailEl.classList.remove("hidden");
+  } else {
+    detailEl.textContent = "";
+    detailEl.classList.add("hidden");
+  }
+  document.getElementById("gcoConfirmCancel").textContent = cancelLabel;
+  const okBtn = document.getElementById("gcoConfirmOk");
+  okBtn.textContent = confirmLabel;
+  return new Promise((resolve) => {
+    gcoConfirmResolve = resolve;
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+    document.body.classList.add("modal-open");
+    okBtn.focus();
+  });
+}
+
 function renderAdminUsersTableRows(users) {
   return (users || [])
     .map(
       (u) =>
-        `<tr><td>${u.id}</td><td>${escapeHtml(u.full_name)}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.role)}</td><td>${u.is_active ? "Active" : "Inactive"}</td><td><button type="button" class="btn danger admin-delete-user" data-id="${u.id}" data-email="${escapeHtml(u.email)}">Delete</button></td></tr>`
+        `<tr><td>${u.id}</td><td>${escapeHtml(u.full_name)}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.role)}</td><td>${u.is_active ? "Active" : "Inactive"}</td><td><button type="button" class="btn danger admin-delete-user" data-id="${u.id}" data-email="${escapeHtml(u.email)}" data-name="${escapeHtml(u.full_name)}">Delete</button></td></tr>`
     )
     .join("");
 }
@@ -60,9 +142,17 @@ function renderAdminUsersTableRows(users) {
 function wireAdminDeleteUserButtons(root, menu) {
   root.querySelectorAll(".admin-delete-user").forEach((btn) => {
     btn.onclick = async () => {
-      const ok = confirm(
-        `Permanently delete this user?\n\n${btn.dataset.email}\n\nLinked appointments and notifications will be removed. This cannot be undone.`
-      );
+      const name = btn.dataset.name || "this user";
+      const email = btn.dataset.email || "";
+      const ok = await showConfirmDialog({
+        title: "Delete user account?",
+        message: `You are about to permanently delete ${name}.`,
+        detail: email
+          ? `${email}\n\nAll linked appointments and notifications will be removed. This cannot be undone.`
+          : "All linked appointments and notifications will be removed. This cannot be undone.",
+        confirmLabel: "Yes, delete user",
+        cancelLabel: "Keep user"
+      });
       if (!ok) return;
       const msg = document.getElementById("adminUserMsg");
       try {
@@ -470,6 +560,16 @@ function validateStrongPassword(password) {
   return { ok: true, message: "Strong password." };
 }
 
+const PASSWORD_EYE_ICON_SHOW = `<svg class="password-eye-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>`;
+const PASSWORD_EYE_ICON_HIDE = `<svg class="password-eye-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16c.59-.22 1.22-.36 1.86-.36zM2 4.27l2.28 2.28.46.46A11.87 11.87 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42 2.06 2.06 1.27-1.27L3.27 3 2 4.27zM7.53 9.8l1.55 1.55a3.01 3.01 0 0 0 4.31 4.31l1.55 1.55a5 5 0 0 1-6.72-6.72L7.53 9.8zm4.31-.78 3.15 3.15.02-.16a3 3 0 0 0-3.17-2.99z"/></svg>`;
+
+function setPasswordToggleState(toggle, input, label, visible) {
+  toggle.innerHTML = visible ? PASSWORD_EYE_ICON_HIDE : PASSWORD_EYE_ICON_SHOW;
+  toggle.setAttribute("aria-pressed", visible ? "true" : "false");
+  toggle.setAttribute("aria-label", `${visible ? "Hide" : "Show"} ${label}`);
+  toggle.title = visible ? "Hide password" : "Show password";
+}
+
 function attachPasswordToggle(input, label = "password") {
   if (!input || input.dataset.enhanced === "1") return;
   const wrap = document.createElement("div");
@@ -479,13 +579,11 @@ function attachPasswordToggle(input, label = "password") {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "password-eye-btn";
-  toggle.textContent = "Show";
-  toggle.setAttribute("aria-label", `Show ${label}`);
+  setPasswordToggleState(toggle, input, label, false);
   toggle.onclick = () => {
     const toText = input.type === "password";
     input.type = toText ? "text" : "password";
-    toggle.textContent = toText ? "Hide" : "Show";
-    toggle.setAttribute("aria-label", `${toText ? "Hide" : "Show"} ${label}`);
+    setPasswordToggleState(toggle, input, label, toText);
   };
   wrap.appendChild(toggle);
   input.dataset.enhanced = "1";
@@ -924,18 +1022,32 @@ function showToast(message) {
   }, 2800);
 }
 
+function isLimitedSlotCoverage(slots, dayWindow) {
+  if (!dayWindow || !slots?.length) return false;
+  const segments = getBookableSegments(dayWindow.start, dayWindow.end, dayWindow.breaks);
+  const totalBookable = segments.reduce((acc, seg) => acc + (seg.end - seg.start), 0);
+  if (totalBookable <= 0) return false;
+  const slotMins = slots.reduce(
+    (acc, s) => acc + Math.max(0, timeToMinutes(s.endTime) - timeToMinutes(s.startTime)),
+    0
+  );
+  return slotMins > 0 && slotMins < totalBookable * 0.85;
+}
+
 function buildYearCalendar(year, appointments, unavailable, options = {}) {
-  const { disableWeekendBooking, scheduleByDate, activeDate = "", selectedDates = [] } = options;
+  const { disableWeekendBooking, scheduleByDate, activeDate = "", selectedDates = [], dayWindow = null } = options;
   const selectedSet = new Set(Array.isArray(selectedDates) ? selectedDates : []);
   const counselorMode = Boolean(scheduleByDate);
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const week = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  const fullDayBlocks = unavailable.filter((u) => !u.start_time && !u.end_time);
+  const fullDayBlocks = unavailable.filter((u) => isFullDayUnavailBlock(u));
   const unavailableMap = new Map(fullDayBlocks.map((u) => [String(u.unavailable_date).slice(0, 10), u]));
   const partialDates = new Set(
-    unavailable.filter((u) => u.start_time || u.end_time).map((u) => String(u.unavailable_date).slice(0, 10))
+    unavailable
+      .filter((u) => (u.start_time || u.end_time) && !isFullDayUnavailBlock(u))
+      .map((u) => String(u.unavailable_date).slice(0, 10))
   );
   const appointmentDates = new Set(appointments.map((a) => String(a.appointment_date).slice(0, 10)));
 
@@ -956,7 +1068,7 @@ function buildYearCalendar(year, appointments, unavailable, options = {}) {
     }
   }
 
-  const counselorMeta = { scheduleByDate, unavailableByDate, appointmentByDate };
+  const counselorMeta = { scheduleByDate, unavailableByDate, appointmentByDate, dayWindow };
 
   return monthNames
     .map((monthName, monthIndex) => {
@@ -983,11 +1095,12 @@ function buildYearCalendar(year, appointments, unavailable, options = {}) {
           classes = ["month-day", "calendar-day-btn"];
           if (disableWeekendBooking && isWeekend) classes.push("weekend-no-book");
           else if (unavailableMap.has(iso)) classes.push("unavailable");
+          else if (partialDates.has(iso)) classes.push("partial-unavailable");
           else if (iso === todayIso) classes.push("today");
-          else if (appointmentDates.has(iso) || partialDates.has(iso)) classes.push("booked");
+          else if (appointmentDates.has(iso)) classes.push("booked");
           if (disableWeekendBooking && isWeekend) title = "No bookings on weekends";
-          else if (unavailableMap.has(iso)) title = unavailableMap.get(iso).message || "Unavailable";
-          else if (partialDates.has(iso)) title = "Partially blocked — open the day to see available times";
+          else if (unavailableMap.has(iso)) title = unavailableMap.get(iso).message || "Unavailable all day";
+          else if (partialDates.has(iso)) title = "Part-day only — some hours unavailable; other times may be open";
           else if (appointmentDates.has(iso)) title = "With appointments";
           else title = "Available";
         }
@@ -1075,9 +1188,25 @@ function formatUnavailTime(t) {
   return String(t).slice(0, 5);
 }
 
+const GCO_WHOLE_DAY_UNAVAIL_START = "07:00";
+const GCO_WHOLE_DAY_UNAVAIL_END = "17:00";
+
+/** Whole day = no times, or block covers 7:00 AM – 5:00 PM (GCO office day). */
+function isFullDayUnavailBlock(block) {
+  if (!block) return false;
+  const start = formatUnavailTime(block.start_time);
+  const end = formatUnavailTime(block.end_time);
+  if (!start && !end) return true;
+  if (!start || !end) return false;
+  return (
+    timeToMinutes(start) <= timeToMinutes(GCO_WHOLE_DAY_UNAVAIL_START) &&
+    timeToMinutes(end) >= timeToMinutes(GCO_WHOLE_DAY_UNAVAIL_END)
+  );
+}
+
 function getPartialUnavailBlocks(blocks) {
   return (blocks || [])
-    .filter((b) => b.start_time || b.end_time)
+    .filter((b) => (b.start_time || b.end_time) && !isFullDayUnavailBlock(b))
     .map((b) => ({
       start: formatUnavailTime(b.start_time) || "00:00",
       end: formatUnavailTime(b.end_time) || "23:59",
@@ -1090,6 +1219,7 @@ function timeRangesOverlapClient(startA, endA, startB, endB) {
 }
 
 function slotOverlapsUnavail(slotStart, slotEnd, blocks) {
+  if ((blocks || []).some(isFullDayUnavailBlock)) return true;
   return getPartialUnavailBlocks(blocks).some((b) => timeRangesOverlapClient(slotStart, slotEnd, b.start, b.end));
 }
 
@@ -1102,22 +1232,30 @@ function formatPartialUnavailLabel(blocks) {
     .join("; ");
 }
 
-function getCounselorDayStatus(iso, { scheduleByDate, unavailableByDate, appointmentByDate }) {
+function getCounselorDayStatus(iso, { scheduleByDate, unavailableByDate, appointmentByDate, dayWindow }) {
   const blocks = unavailableByDate.get(iso) || [];
-  const fullBlock = blocks.some((b) => !b.start_time && !b.end_time);
-  if (fullBlock) return { status: "unavailable", partialBlocked: false, title: "Unavailable — blocked all day" };
+  const fullBlock = blocks.some((b) => isFullDayUnavailBlock(b));
+  if (fullBlock)
+    return {
+      status: "unavailable",
+      partialBlocked: false,
+      title: "Unavailable — blocked 7:00 AM – 5:00 PM (whole day)"
+    };
 
   const partialBlocks = getPartialUnavailBlocks(blocks);
   const partialLabel = partialBlocks.length ? formatPartialUnavailLabel(blocks) : "";
 
   const entry = scheduleByDate.get(iso);
   const slots = entry?.slots || [];
+  const limitedDay = isLimitedSlotCoverage(slots, dayWindow);
+  const partDayOnly = partialBlocks.length > 0 || limitedDay;
+
   if (!slots.length) {
     if (partialBlocks.length) {
       return {
         status: "partial-blocked",
         partialBlocked: true,
-        title: `Unavailable times set: ${partialLabel}`
+        title: `Part-day only — unavailable times: ${partialLabel}`
       };
     }
     return { status: "unset", partialBlocked: false, title: "No availability set for this date" };
@@ -1130,24 +1268,29 @@ function getCounselorDayStatus(iso, { scheduleByDate, unavailableByDate, appoint
   const blockedSlots = slots.filter((s) => slotOverlapsUnavail(s.startTime, s.endTime, blocks));
   const allBooked = slots.every((s) => bookedStarts.has(s.startTime));
   if (allBooked && slots.length > 0) {
-    const extra = partialBlocks.length ? ` · Unavailable: ${partialLabel}` : "";
+    const extra = partDayOnly
+      ? limitedDay
+        ? " · Part-day availability only"
+        : ` · Part-day: ${partialLabel}`
+      : "";
     return {
       status: "fully-booked",
-      partialBlocked: partialBlocks.length > 0,
+      partialBlocked: partDayOnly,
       title: `Fully booked — all slots taken${extra}`
     };
   }
 
   const open = slots.length - slots.filter((s) => bookedStarts.has(s.startTime)).length;
-  const blockedNote =
-    blockedSlots.length > 0
-      ? ` · ${blockedSlots.length} slot(s) blocked (${partialLabel})`
-      : partialBlocks.length
-        ? ` · Unavailable: ${partialLabel}`
-        : "";
+  const blockedNote = partDayOnly
+    ? limitedDay
+      ? " · Part-day availability only (not full day)"
+      : blockedSlots.length > 0
+        ? ` · ${blockedSlots.length} slot(s) blocked (${partialLabel})`
+        : ` · Part-day: ${partialLabel}`
+    : "";
   return {
     status: "has-slots",
-    partialBlocked: partialBlocks.length > 0,
+    partialBlocked: partDayOnly,
     title: `${slots.length} slot(s), ${open} open for booking${blockedNote}`
   };
 }
@@ -1283,7 +1426,7 @@ function renderCounselorDayPanel(date, ctx) {
 
   const { scheduleByDate, unavailableByDate, appointmentByDate } = ctx;
   const blocks = unavailableByDate.get(date) || [];
-  const fullBlock = blocks.some((b) => !b.start_time && !b.end_time);
+  const fullBlock = blocks.some((b) => isFullDayUnavailBlock(b));
   const partialBlocks = getPartialUnavailBlocks(blocks);
   const entry = scheduleByDate.get(date);
   const slots = entry?.slots || [];
@@ -1318,7 +1461,7 @@ function renderCounselorDayPanel(date, ctx) {
     </div>
     ${
       fullBlock
-        ? `<p class="feedback feedback-error">Unavailable — ${escapeHtml(blocks.find((b) => !b.start_time && !b.end_time)?.message || "blocked all day")}</p>`
+        ? `<p class="feedback feedback-error">Unavailable — ${escapeHtml(blocks.find((b) => isFullDayUnavailBlock(b))?.message || "blocked 7:00 AM – 5:00 PM")}</p>`
         : slots.length
           ? `<div class="day-view-slots">${slots.map((s) => renderCounselorSlotChip(s, blocks)).join("")}</div>`
           : partialBlocks.length
@@ -1442,8 +1585,9 @@ async function renderCounselorCalendar(root) {
   const primaryDate = state.counselorAvailDate || todayIso;
   state.counselorAvailDate = primaryDate;
   if (!Array.isArray(state.counselorAvailDates)) state.counselorAvailDates = [];
+  const dayWindow = { start: defaultDayStart, end: defaultDayEnd, breaks: lunchBreaks };
   const calendarCtx = buildCounselorCalendarCtx(dateSchedule, calendar);
-  state.counselorCalendarCtx = calendarCtx;
+  state.counselorCalendarCtx = { ...calendarCtx, dayWindow };
   const selectedDates = state.counselorAvailDates;
 
   const selectedEntry = scheduleByDate.get(primaryDate);
@@ -1563,7 +1707,7 @@ async function renderCounselorCalendar(root) {
           <span><i class="dot unset"></i>Not set</span>
           <span><i class="dot fully-booked"></i>Fully booked</span>
           <span><i class="dot blocked"></i>Unavailable (all day)</span>
-          <span><i class="dot partial-blocked"></i>Unavailable times set</span>
+          <span><i class="dot partial-blocked"></i>Part-day only (pink)</span>
           <span><i class="dot today"></i>Today</span>
           <span><i class="dot selected"></i>Selected</span>
         </div>
@@ -1573,7 +1717,12 @@ async function renderCounselorCalendar(root) {
         year,
         calendar.appointments || [],
         calendar.unavailable || [],
-        { scheduleByDate, activeDate: primaryDate, selectedDates }
+        {
+          scheduleByDate,
+          activeDate: primaryDate,
+          selectedDates,
+          dayWindow: { start: defaultDayStart, end: defaultDayEnd, breaks: lunchBreaks }
+        }
       )}</div>
       <div id="counselorDayView" class="counselor-day-view"></div>
     </div>
@@ -1668,13 +1817,20 @@ async function renderCounselorCalendar(root) {
       api(`/counselor/calendar?year=${y}`),
       api("/counselor/availability-schedule")
     ]);
-    state.counselorCalendarCtx = buildCounselorCalendarCtx(sched, cal);
+    const dw =
+      state.counselorCalendarCtx?.dayWindow || {
+        start: defaultDayStart,
+        end: defaultDayEnd,
+        breaks: lunchBreaks
+      };
+    state.counselorCalendarCtx = { ...buildCounselorCalendarCtx(sched, cal), dayWindow: dw };
     const grid = document.querySelector(".counselor-availability-calendar");
     if (grid) {
       grid.innerHTML = buildYearCalendar(y, cal.appointments || [], cal.unavailable || [], {
         scheduleByDate: state.counselorCalendarCtx.scheduleByDate,
         activeDate: getActiveAvailDate(),
-        selectedDates: state.counselorAvailDates || []
+        selectedDates: state.counselorAvailDates || [],
+        dayWindow: dw
       });
       bindCounselorCalendarDayClicks(state.counselorCalendarCtx);
     }
@@ -3013,10 +3169,10 @@ async function renderStudentView(root, menu) {
       const calendarData = await api(`/counselor/calendar?year=${studentCalendarYear}&counselorId=${counselorSelect.value}`);
       const allRows = calendarData.unavailable || [];
       fullDayBlocks = new Set(
-        allRows.filter((r) => !r.start_time && !r.end_time).map((r) => String(r.unavailable_date).slice(0, 10))
+        allRows.filter((r) => isFullDayUnavailBlock(r)).map((r) => String(r.unavailable_date).slice(0, 10))
       );
       partialBlocks = allRows
-        .filter((r) => r.start_time || r.end_time)
+        .filter((r) => (r.start_time || r.end_time) && !isFullDayUnavailBlock(r))
         .map((r) => ({
           date: String(r.unavailable_date).slice(0, 10),
           start: r.start_time ? String(r.start_time).slice(0, 5) : "00:00",
@@ -3038,7 +3194,8 @@ async function renderStudentView(root, menu) {
         <div class="calendar-legend">
           <span><i class="dot available"></i>Available</span>
           <span><i class="dot booked"></i>With appointments</span>
-          <span><i class="dot unavailable"></i>Unavailable</span>
+          <span><i class="dot unavailable"></i>Unavailable (all day)</span>
+          <span><i class="dot partial-unavailable"></i>Part-day only</span>
           <span><i class="dot today"></i>Today</span>
         </div>
         <div class="year-calendar-grid">${buildYearCalendar(studentCalendarYear, calendarData.appointments || [], calendarData.unavailable || [], { disableWeekendBooking: true })}</div>
@@ -3795,7 +3952,7 @@ async function renderAdminView(root, menu) {
   }
   if (menu === "Appointments") {
     const rows = await api("/appointments/my");
-    root.innerHTML = `<div class="panel-header"><h2 class="section-title">Appointments</h2></div><div class="table-wrap"><table><thead><tr><th>Code</th><th>Student</th><th>Counselor</th><th>Date</th><th>Time</th><th>Status</th><th>Student cancellation</th><th>Action</th></tr></thead><tbody>${rows.map((a) => `<tr><td>${escapeHtml(a.booking_code)}</td><td>${escapeHtml(a.student_name || "—")}</td><td>${escapeHtml(a.counselor_name || "—")}</td><td>${a.appointment_date}</td><td>${String(a.appointment_time).slice(0, 5)}</td><td>${a.status}</td><td>${a.student_cancellation_reason ? escapeHtml(a.student_cancellation_reason) : "—"}</td><td><button type="button" class="btn ghost admin-resched" data-id="${a.id}">Request Reschedule</button><button type="button" class="btn danger admin-delete-appt" data-id="${a.id}">Delete</button></td></tr>`).join("")}</tbody></table></div><p id="adminApptMsg" class="feedback"></p>`;
+    root.innerHTML = `<div class="panel-header"><h2 class="section-title">Appointments</h2></div><div class="table-wrap"><table><thead><tr><th>Code</th><th>Student</th><th>Counselor</th><th>Date</th><th>Time</th><th>Status</th><th>Student cancellation</th><th>Action</th></tr></thead><tbody>${rows.map((a) => `<tr><td>${escapeHtml(a.booking_code)}</td><td>${escapeHtml(a.student_name || "—")}</td><td>${escapeHtml(a.counselor_name || "—")}</td><td>${a.appointment_date}</td><td>${String(a.appointment_time).slice(0, 5)}</td><td>${a.status}</td><td>${a.student_cancellation_reason ? escapeHtml(a.student_cancellation_reason) : "—"}</td><td><button type="button" class="btn ghost admin-resched" data-id="${a.id}">Request Reschedule</button><button type="button" class="btn danger admin-delete-appt" data-id="${a.id}" data-code="${escapeHtml(a.booking_code)}" data-student="${escapeHtml(a.student_name || "—")}">Delete</button></td></tr>`).join("")}</tbody></table></div><p id="adminApptMsg" class="feedback"></p>`;
     document.querySelectorAll(".admin-resched").forEach((btn) => {
       btn.onclick = async () => {
         if (!confirm("Are you sure you want to reschedule this?")) return;
@@ -3813,7 +3970,18 @@ async function renderAdminView(root, menu) {
     });
     document.querySelectorAll(".admin-delete-appt").forEach((btn) => {
       btn.onclick = async () => {
-        if (!confirm("Are you sure you want to delete this?")) return;
+        const code = btn.dataset.code || "this appointment";
+        const student = btn.dataset.student || "";
+        const ok = await showConfirmDialog({
+          title: "Delete appointment?",
+          message: `You are about to permanently delete booking ${code}.`,
+          detail: student
+            ? `Student: ${student}\n\nThis will remove the appointment from the system. This cannot be undone.`
+            : "This will remove the appointment from the system. This cannot be undone.",
+          confirmLabel: "Yes, delete appointment",
+          cancelLabel: "Keep appointment"
+        });
+        if (!ok) return;
         const msg = document.getElementById("adminApptMsg");
         try {
           await api(`/admin/appointments/${btn.dataset.id}`, { method: "DELETE" });
